@@ -1,6 +1,6 @@
 services:
   benz-bot:
-    image: ghcr.io/yourusername/benz-bot:latest
+    image: ghcr.io/ruslangabbasov/benz-bot:latest
     restart: unless-stopped
     environment:
       - BOT_TOKEN=${BOT_TOKEN}

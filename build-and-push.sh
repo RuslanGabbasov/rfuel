@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-IMAGE="${IMAGE:-ghcr.io/yourusername/benz-bot}"
+IMAGE="${IMAGE:-ghcr.io/ruslangabbasov/benz-bot}"
 TAG="${TAG:-latest}"
 
 echo "Building ${IMAGE}:${TAG} ..."

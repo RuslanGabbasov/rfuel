@@ -1,0 +1,12 @@
+services:
+  benz-bot:
+    image: ghcr.io/yourusername/benz-bot:latest
+    restart: unless-stopped
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+      - DATA_DIR=/data
+    volumes:
+      - benz-data:/data
+
+volumes:
+  benz-data:

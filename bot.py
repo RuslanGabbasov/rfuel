@@ -635,7 +635,6 @@ def main() -> None:
     app.run_polling(
         allowed_updates=Update.ALL_TYPES,
         drop_pending_updates=True,
-        pool_timeout=30,
     )
 
 

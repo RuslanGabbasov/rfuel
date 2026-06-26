@@ -14,7 +14,7 @@ VOLUME ["/data"]
 ENV DATA_DIR=/data
 
 # Run as non-root
-RUN useradd -m -u 1000 botuser && chown -R botuser:botuser /app /data
+RUN useradd -m -u 1000 botuser && mkdir -p /data && chown -R botuser:botuser /app /data
 USER botuser
 
 CMD ["python", "bot.py"]

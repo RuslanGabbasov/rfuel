@@ -58,13 +58,11 @@ if SOCKS_PROXY.startswith("socks5h://"):
 # --- Logging ---
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.DEBUG,
+    level=logging.INFO,
 )
-# Keep httpx/apscheduler at INFO to reduce noise
-logging.getLogger("httpx").setLevel(logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
-logging.getLogger("apscheduler").setLevel(logging.INFO)
-logging.getLogger("aiosqlite").setLevel(logging.WARNING)
+logging.getLogger("apscheduler").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
 
@@ -564,19 +562,14 @@ async def _sync_notifications(
 
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Log errors and notify user."""
+    """Log errors, suppress Conflict noise."""
+    err = context.error
+    if err and "Conflict" in str(err):
+        return  # transient, auto-recovers
     logger.error(
-        f"Update {update} caused error: {context.error}\n"
-        f"Traceback:\n{''.join(traceback.format_tb(context.error.__traceback__))}"
+        f"Update {update} caused error: {err}\n"
+        f"Traceback:\n{''.join(traceback.format_tb(err.__traceback__))}"
     )
-    try:
-        if update and hasattr(update, "effective_chat") and update.effective_chat:
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text="❌ Произошла внутренняя ошибка. Попробуйте ещё раз или используйте /start.",
-            )
-    except Exception:
-        pass
 
 
 # --- Main ---

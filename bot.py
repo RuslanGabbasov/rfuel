@@ -56,8 +56,13 @@ if SOCKS_PROXY.startswith("socks5h://"):
 # --- Logging ---
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO,
+    level=logging.DEBUG,
 )
+# Keep httpx/apscheduler at INFO to reduce noise
+logging.getLogger("httpx").setLevel(logging.INFO)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("apscheduler").setLevel(logging.INFO)
+logging.getLogger("aiosqlite").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 # --- Keyboards ---
@@ -118,6 +123,7 @@ def _maps_button(lat: float, lon: float) -> InlineKeyboardMarkup:
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /start command."""
     user = update.effective_user
+    logger.info(f"/start from {user.id} (@{user.username})")
 
     await update.message.reply_text(
         f"👋 Привет, {user.first_name}!\n\n"
@@ -258,7 +264,7 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     location = update.message.location
     lat = location.latitude
     lon = location.longitude
-    logger.info(f"Location received from {chat_id}: {lat}, {lon}")
+    logger.info(f"Location from {chat_id}: {lat}, {lon}")
     try:
         await _save_location_and_proceed(update, chat_id, lat, lon)
     except Exception as e:
@@ -365,6 +371,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     """Handle text messages (keyboard buttons and coordinate input)."""
     text = update.message.text.strip()
     chat_id = update.effective_chat.id
+    logger.debug(f"Text from {chat_id}: {text[:50]}")
 
     if text == "⌨️ Ввести координаты вручную":
         await update.message.reply_text(
@@ -620,7 +627,7 @@ def main() -> None:
     logger.info("Bot started. Polling...")
     app.run_polling(
         allowed_updates=Update.ALL_TYPES,
-        drop_pending_updates=True,
+        drop_pending_updates=False,
     )
 
 

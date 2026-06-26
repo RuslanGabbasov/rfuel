@@ -20,6 +20,7 @@ import time
 import traceback
 
 import aiohttp
+import httpx
 from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
@@ -30,6 +31,7 @@ from telegram import (
 from telegram.constants import ParseMode
 from telegram.ext import (
     Application,
+    ApplicationBuilder,
     CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
@@ -585,9 +587,12 @@ def main() -> None:
 
     _asyncio.run(db.init_db())
 
-    builder = Application.builder().token(TOKEN)
+    builder = ApplicationBuilder().token(TOKEN)
     if SOCKS_PROXY:
-        builder = builder.proxy(SOCKS_PROXY)
+        # httpx SOCKS transport must be set explicitly via get_updates_request
+        transport = httpx.AsyncHTTPTransport(proxy=SOCKS_PROXY)
+        httpx_client = httpx.AsyncClient(transport=transport)
+        builder = builder.get_updates_request(httpx_client).proxy(SOCKS_PROXY)
         logger.info(f"Using proxy: {SOCKS_PROXY}")
     app = builder.build()
 

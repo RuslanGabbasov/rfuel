@@ -20,6 +20,7 @@ import time
 import traceback
 
 import aiohttp
+import httpx
 from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
@@ -595,7 +596,13 @@ def main() -> None:
 
     builder = ApplicationBuilder().token(TOKEN)
     if SOCKS_PROXY:
-        builder = builder.proxy(SOCKS_PROXY)
+        # Build httpx client with SOCKS proxy AND long read timeout for polling
+        transport = httpx.AsyncHTTPTransport(proxy=SOCKS_PROXY)
+        httpx_client = httpx.AsyncClient(
+            transport=transport,
+            timeout=httpx.Timeout(30.0, connect=15.0),
+        )
+        builder = builder.proxy(SOCKS_PROXY).get_updates_request(httpx_client)
         logger.info(f"Using proxy: {SOCKS_PROXY}")
     app = builder.build()
 
@@ -627,7 +634,8 @@ def main() -> None:
     logger.info("Bot started. Polling...")
     app.run_polling(
         allowed_updates=Update.ALL_TYPES,
-        drop_pending_updates=False,
+        drop_pending_updates=True,
+        pool_timeout=30,
     )
 
 

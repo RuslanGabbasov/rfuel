@@ -594,14 +594,11 @@ def main() -> None:
 
     builder = ApplicationBuilder().token(TOKEN)
     if SOCKS_PROXY:
-        # Build HTTPXRequest with SOCKS proxy and long read timeout for polling
-        transport = httpx.AsyncHTTPTransport(proxy=SOCKS_PROXY)
+        # HTTPXRequest with SOCKS proxy AND long read timeout for getUpdates polling
         request = HTTPXRequest(
-            transport=transport,
+            proxy=SOCKS_PROXY,
             read_timeout=30,
-            write_timeout=15,
             connect_timeout=15,
-            pool_timeout=5,
         )
         builder = builder.proxy(SOCKS_PROXY).get_updates_request(request)
         logger.info(f"Using proxy: {SOCKS_PROXY}")

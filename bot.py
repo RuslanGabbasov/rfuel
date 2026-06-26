@@ -38,6 +38,7 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
+from telegram.request import HTTPXRequest
 
 import cache
 import checker
@@ -64,6 +65,7 @@ logging.getLogger("httpx").setLevel(logging.INFO)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("apscheduler").setLevel(logging.INFO)
 logging.getLogger("aiosqlite").setLevel(logging.WARNING)
+
 logger = logging.getLogger(__name__)
 
 # --- Keyboards ---
@@ -404,10 +406,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         )
 
 
-import cache
-import checker
-import db
-
 # In-memory cluster cache (persists across job runs)
 _clusters_cache: list[cache.Cluster] = []
 
@@ -596,13 +594,16 @@ def main() -> None:
 
     builder = ApplicationBuilder().token(TOKEN)
     if SOCKS_PROXY:
-        # Build httpx client with SOCKS proxy AND long read timeout for polling
+        # Build HTTPXRequest with SOCKS proxy and long read timeout for polling
         transport = httpx.AsyncHTTPTransport(proxy=SOCKS_PROXY)
-        httpx_client = httpx.AsyncClient(
+        request = HTTPXRequest(
             transport=transport,
-            timeout=httpx.Timeout(30.0, connect=15.0),
+            read_timeout=30,
+            write_timeout=15,
+            connect_timeout=15,
+            pool_timeout=5,
         )
-        builder = builder.proxy(SOCKS_PROXY).get_updates_request(httpx_client)
+        builder = builder.proxy(SOCKS_PROXY).get_updates_request(request)
         logger.info(f"Using proxy: {SOCKS_PROXY}")
     app = builder.build()
 

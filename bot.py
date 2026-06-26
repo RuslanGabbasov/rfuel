@@ -46,6 +46,7 @@ TOKEN = os.environ.get("BOT_TOKEN", "")
 CHECK_INTERVAL_SECONDS = 300  # Check every 5 minutes
 MAX_STATIONS_PER_NOTIFICATION = 5
 DATA_DIR = os.environ.get("DATA_DIR", os.path.dirname(__file__))
+SOCKS_PROXY = os.environ.get("SOCKS_PROXY", "")  # e.g. socks5h://127.0.0.1:1080
 
 # --- Logging ---
 logging.basicConfig(
@@ -398,6 +399,14 @@ import db
 _clusters_cache: list[cache.Cluster] = []
 
 
+def _make_session() -> aiohttp.ClientSession:
+    """Create an aiohttp session, optionally with SOCKS proxy."""
+    if SOCKS_PROXY and checker.HAS_SOCKS:
+        connector = checker.ProxyConnector.from_url(SOCKS_PROXY)
+        return aiohttp.ClientSession(connector=connector)
+    return aiohttp.ClientSession()
+
+
 # --- Background Job: Check for fuel ---
 
 
@@ -414,7 +423,7 @@ async def check_fuel_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     clusters = cache.build_clusters(users)
     logger.info(f"Checking fuel: {len(users)} users → {len(clusters)} cluster(s)")
 
-    async with aiohttp.ClientSession() as session:
+    async with _make_session() as session:
         for cluster in clusters:
             # Fetch API once per cluster (if cache expired)
             if not cache.is_cache_valid(cluster):
@@ -572,7 +581,11 @@ def main() -> None:
 
     _asyncio.run(db.init_db())
 
-    app = Application.builder().token(TOKEN).build()
+    builder = Application.builder().token(TOKEN)
+    if SOCKS_PROXY:
+        builder = builder.proxy(SOCKS_PROXY)
+        logger.info(f"Using proxy: {SOCKS_PROXY}")
+    app = builder.build()
 
     # Command handlers
     app.add_handler(CommandHandler("start", start))

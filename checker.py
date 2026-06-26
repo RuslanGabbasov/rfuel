@@ -1,11 +1,20 @@
 """API client for gdebenz.ru and fuel-matching logic."""
 
+import os
 from typing import TypedDict
 
 import aiohttp
 
+try:
+    from aiohttp_socks import ProxyConnector
+
+    HAS_SOCKS = True
+except ImportError:
+    HAS_SOCKS = False
+
 API_BASE = "https://gdebenz.ru/api"
 CHECK_RADIUS_KM = 10
+SOCKS_PROXY = os.environ.get("SOCKS_PROXY", "")
 
 
 class Station(TypedDict):

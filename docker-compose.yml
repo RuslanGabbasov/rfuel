@@ -1,12 +1,13 @@
 services:
-  benz-bot:
+  rfuel:
     image: ghcr.io/ruslangabbasov/rfuel:latest
     restart: unless-stopped
     environment:
       - BOT_TOKEN=${BOT_TOKEN}
+      - SOCKS_PROXY=${SOCKS_PROXY:-}
       - DATA_DIR=/data
     volumes:
-      - benz-data:/data
+      - rfuel-data:/data
 
 volumes:
-  benz-data:
+  rfuel-data:

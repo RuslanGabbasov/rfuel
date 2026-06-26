@@ -46,7 +46,11 @@ TOKEN = os.environ.get("BOT_TOKEN", "")
 CHECK_INTERVAL_SECONDS = 300  # Check every 5 minutes
 MAX_STATIONS_PER_NOTIFICATION = 5
 DATA_DIR = os.environ.get("DATA_DIR", os.path.dirname(__file__))
-SOCKS_PROXY = os.environ.get("SOCKS_PROXY", "")  # e.g. socks5h://127.0.0.1:1080
+SOCKS_PROXY = os.environ.get("SOCKS_PROXY", "")  # e.g. socks5://127.0.0.1:1080
+
+# httpx only supports socks5:// (not socks5h://), normalize if needed
+if SOCKS_PROXY.startswith("socks5h://"):
+    SOCKS_PROXY = SOCKS_PROXY.replace("socks5h://", "socks5://", 1)
 
 # --- Logging ---
 logging.basicConfig(

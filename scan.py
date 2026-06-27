@@ -138,21 +138,22 @@ def build_html(points: list[dict], output_path: str) -> None:
 <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
 <style>
 * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-body {{ font-family: -apple-system, system-ui, sans-serif; background: #111; }}
+body {{ font-family: -apple-system, system-ui, sans-serif; background: #f5f5f5; }}
 #map {{ height: 100vh; width: 100%; }}
 #stats {{
   position: fixed; top: 12px; right: 12px; z-index: 1000;
-  background: rgba(17,17,17,0.92); backdrop-filter: blur(6px);
-  padding: 14px 18px; border-radius: 10px; border: 1px solid #333;
-  font-size: 13px; color: #e0e0e0; min-width: 200px;
+  background: rgba(255,255,255,0.95); box-shadow: 0 2px 12px rgba(0,0,0,0.12);
+  padding: 14px 18px; border-radius: 10px; border: 1px solid #e0e0e0;
+  font-size: 13px; color: #333; min-width: 200px;
 }}
-#stats h3 {{ color: #fff; font-size: 15px; margin-bottom: 6px; }}
+#stats h3 {{ color: #111; font-size: 15px; margin-bottom: 6px; }}
 .legend {{ margin-top: 8px; }}
 .legend-item {{ display: flex; align-items: center; gap: 6px; margin: 2px 0; font-size: 12px; }}
 .legend-item span {{ width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; }}
 .footer {{
   position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%); z-index: 1000;
-  background: rgba(17,17,17,0.85); padding: 6px 16px; border-radius: 6px;
+  background: rgba(255,255,255,0.9); box-shadow: 0 1px 6px rgba(0,0,0,0.1);
+  padding: 6px 16px; border-radius: 6px;
   color: #666; font-size: 11px; text-align: center;
 }}
 .footer a {{ color: #6688aa; }}
@@ -190,7 +191,7 @@ var map = L.map('map', {{
   zoomControl: true,
 }});
 
-L.tileLayer('https://{{s}}.basemaps.cartocdn.com/dark_all/{{z}}/{{x}}/{{y}}{{r}}.png', {{
+L.tileLayer('https://{{s}}.basemaps.cartocdn.com/light_all/{{z}}/{{x}}/{{y}}{{r}}.png', {{
   attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> / <a href="https://carto.com/">CARTO</a>',
   subdomains: 'abcd',
   maxZoom: 19,
@@ -256,19 +257,19 @@ if (points.length > 0) {{
 async def main():
     parser = argparse.ArgumentParser(description="Scan Russia for fuel availability")
     parser.add_argument(
-        "--step", type=float, default=50, help="Grid step in km (default: 50)"
+        "--step", type=float, default=15, help="Grid step in km (default: 15)"
     )
     parser.add_argument(
         "--radius",
         type=int,
-        default=10,
-        help="API radius per point in km (default: 10)",
+        default=8,
+        help="API radius per point in km (default: 8)",
     )
     parser.add_argument(
         "--concurrency",
         type=int,
-        default=20,
-        help="Max concurrent requests (default: 20)",
+        default=15,
+        help="Max concurrent requests (default: 15)",
     )
     parser.add_argument(
         "--output", default="fuel_heatmap.html", help="Output HTML file"

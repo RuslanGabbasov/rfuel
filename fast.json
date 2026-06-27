@@ -74,14 +74,14 @@
  {
   "lat": 47.505,
   "lon": 40.003,
-  "total": 11,
+  "total": 12,
   "yes": 1,
   "queue": 2,
-  "no": 8,
+  "no": 9,
   "low": 0,
-  "yes_pct": 9.1,
-  "availability_score": 18.2,
-  "updated": "2026-06-27 02:08:00"
+  "yes_pct": 8.3,
+  "availability_score": 16.7,
+  "updated": "2026-06-27 03:45:00"
  },
  {
   "lat": 48.405,
@@ -136,12 +136,12 @@
   "lon": 115.816,
   "total": 2,
   "yes": 1,
-  "queue": 0,
-  "no": 1,
+  "queue": 1,
+  "no": 0,
   "low": 0,
   "yes_pct": 50.0,
-  "availability_score": 50.0,
-  "updated": "2026-06-27 00:23:43"
+  "availability_score": 75.0,
+  "updated": "2026-06-27 04:16:18"
  },
  {
   "lat": 52.91,
@@ -216,6 +216,18 @@
   "updated": "2026-06-26 08:38:22"
  },
  {
+  "lat": 53.811,
+  "lon": 87.505,
+  "total": 1,
+  "yes": 0,
+  "queue": 0,
+  "no": 1,
+  "low": 0,
+  "yes_pct": 0.0,
+  "availability_score": 0.0,
+  "updated": "2026-06-27 03:22:42"
+ },
+ {
   "lat": 54.712,
   "lon": 31.119,
   "total": 1,
@@ -249,7 +261,7 @@
   "low": 0,
   "yes_pct": 0.0,
   "availability_score": 0.0,
-  "updated": "2026-06-26 19:01:41"
+  "updated": "2026-06-27 03:45:33"
  },
  {
   "lat": 54.712,
@@ -261,7 +273,7 @@
   "low": 0,
   "yes_pct": 16.9,
   "availability_score": 33.9,
-  "updated": "2026-06-27 02:40:25"
+  "updated": "2026-06-27 04:22:45"
  },
  {
   "lat": 55.613,
@@ -278,14 +290,14 @@
  {
   "lat": 55.613,
   "lon": 37.571,
-  "total": 140,
-  "yes": 19,
-  "queue": 44,
-  "no": 72,
+  "total": 142,
+  "yes": 18,
+  "queue": 45,
+  "no": 74,
   "low": 5,
-  "yes_pct": 13.6,
-  "availability_score": 29.3,
-  "updated": "2026-06-27 02:40:51"
+  "yes_pct": 12.7,
+  "availability_score": 28.5,
+  "updated": "2026-06-27 04:20:06"
  },
  {
   "lat": 55.613,
@@ -326,14 +338,14 @@
  {
   "lat": 56.514,
   "lon": 85.149,
-  "total": 2,
-  "yes": 1,
-  "queue": 0,
+  "total": 4,
+  "yes": 2,
+  "queue": 1,
   "no": 0,
   "low": 1,
   "yes_pct": 50.0,
-  "availability_score": 50.0,
-  "updated": "2026-06-27 01:53:56"
+  "availability_score": 62.5,
+  "updated": "2026-06-27 04:10:49"
  },
  {
   "lat": 57.414,
@@ -357,7 +369,7 @@
   "low": 0,
   "yes_pct": 0.0,
   "availability_score": 0.0,
-  "updated": "2026-06-26 22:09:32"
+  "updated": "2026-06-27 03:14:58"
  },
  {
   "lat": 57.414,
@@ -393,7 +405,7 @@
   "low": 0,
   "yes_pct": 50.0,
   "availability_score": 75.0,
-  "updated": "2026-06-27 01:53:39"
+  "updated": "2026-06-27 03:20:40"
  },
  {
   "lat": 59.216,
@@ -470,13 +482,13 @@
  {
   "lat": 64.622,
   "lon": 40.612,
-  "total": 6,
+  "total": 5,
   "yes": 3,
   "queue": 2,
-  "no": 1,
+  "no": 0,
   "low": 0,
-  "yes_pct": 50.0,
-  "availability_score": 66.7,
+  "yes_pct": 60.0,
+  "availability_score": 80.0,
   "updated": "2026-06-26 21:40:26"
  }
 ]

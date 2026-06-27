@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
 """
 Scan all of Russia for fuel availability using gdebenz.ru API.
-Produces an HTML heatmap of fuel availability across the country.
+Two phases:
+1. Collect unique station OSM IDs via /api/stations?lat1=...&lon1=...
+2. Fetch status for each unique station via /api/nearby (single point)
 
-Usage:
-    python scan.py                     # Default: 50km grid, 10km radius
-    python scan.py --step 100          # Coarser grid (faster)
-    python scan.py --step 30           # Finer grid (slower, more detail)
-    python scan.py --radius 15         # Larger API radius per point
+Produces an HTML heatmap.
 """
 
 import argparse
@@ -19,113 +17,139 @@ from pathlib import Path
 
 import aiohttp
 
-API_BASE = "https://gdebenz.ru/api/nearby"
+API_STATIONS = "https://gdebenz.ru/api/stations"
+API_NEARBY = "https://gdebenz.ru/api/nearby"
 
-# Russia bounding box (approximate — mainland)
-RUSSIA_BBOX = {
-    "lat_min": 43.0,  # south (Caucasus)
-    "lat_max": 72.0,  # north (Arctic)
-    "lon_min": 28.0,  # west (Kaliningrad border)
-    "lon_max": 180.0,  # east (Kamchatka)
-}
+RUSSIA_BBOX = {"lat_min": 43.0, "lat_max": 72.0, "lon_min": 28.0, "lon_max": 180.0}
 
 
-def generate_grid(step_km: float) -> list[tuple[float, float]]:
-    """Generate a lat/lon grid covering Russia."""
-    lat_step = step_km / 111.0
-
-    points = []
+def generate_tiles(
+    tile_size_deg: float = 1.0,
+) -> list[tuple[float, float, float, float]]:
+    """Generate overlapping tile boundaries covering Russia."""
+    tiles = []
+    overlap = tile_size_deg * 0.3  # 30% overlap to catch edge stations
     lat = RUSSIA_BBOX["lat_min"]
-    while lat <= RUSSIA_BBOX["lat_max"]:
-        lon_step = step_km / (111.0 * max(math.cos(math.radians(lat)), 0.1))
+    while lat < RUSSIA_BBOX["lat_max"]:
         lon = RUSSIA_BBOX["lon_min"]
-        while lon <= RUSSIA_BBOX["lon_max"]:
-            points.append((round(lat, 3), round(lon, 3)))
-            lon += lon_step
-        lat += lat_step
+        while lon < RUSSIA_BBOX["lon_max"]:
+            lat2 = min(lat + tile_size_deg, RUSSIA_BBOX["lat_max"])
+            lon2 = min(lon + tile_size_deg, RUSSIA_BBOX["lon_max"])
+            tiles.append((lat, lon, lat2, lon2))
+            lon += tile_size_deg - overlap
+        lat += tile_size_deg - overlap
+    return tiles
 
-    return points
 
-
-async def fetch_one(
+async def fetch_stations_tile(
     session: aiohttp.ClientSession,
     sem: asyncio.Semaphore,
-    lat: float,
-    lon: float,
-    radius_km: int,
-) -> dict | None:
-    """Fetch fuel data for one point with retry."""
+    lat1: float,
+    lon1: float,
+    lat2: float,
+    lon2: float,
+) -> list[dict]:
+    """Fetch all stations in a bounding box from /api/stations."""
     async with sem:
         for attempt in range(3):
             try:
                 async with session.get(
-                    API_BASE,
-                    params={"lat": lat, "lon": lon, "radius_km": radius_km},
-                    timeout=aiohttp.ClientTimeout(total=60, sock_read=30),
+                    API_STATIONS,
+                    params={"lat1": lat1, "lon1": lon1, "lat2": lat2, "lon2": lon2},
+                    timeout=aiohttp.ClientTimeout(total=30, sock_read=15),
                 ) as resp:
                     if resp.status == 200:
                         raw = await resp.read()
                         try:
                             data = json.loads(raw)
-                            return {
-                                "lat": lat,
-                                "lon": lon,
-                                "summary": data.get("summary", {}),
-                                "updated": data.get("updated", ""),
-                            }
+                            if isinstance(data, list):
+                                return data
+                            return []
                         except json.JSONDecodeError:
                             if attempt < 2:
                                 await asyncio.sleep(2)
                                 continue
-                            return None
-                    if resp.status == 429:
-                        await asyncio.sleep(5)
-                        continue
-                    return None
+                            return []
+                    return []
             except Exception:
                 if attempt < 2:
                     await asyncio.sleep(1)
                     continue
+                return []
+    return []
+
+
+async def fetch_station_status(
+    session: aiohttp.ClientSession,
+    sem: asyncio.Semaphore,
+    osm_id: str,
+    lat: float,
+    lon: float,
+) -> dict | None:
+    """Fetch fuel status for a single station via /api/nearby (small radius)."""
+    async with sem:
+        try:
+            async with session.get(
+                API_NEARBY,
+                params={
+                    "lat": lat,
+                    "lon": lon,
+                    "radius_km": 0.5,
+                },  # tiny radius to get just this station
+                timeout=aiohttp.ClientTimeout(total=20, sock_read=10),
+            ) as resp:
+                if resp.status == 200:
+                    raw = await resp.read()
+                    try:
+                        data = json.loads(raw)
+                        stations = data.get("stations", [])
+                        for s in stations:
+                            if s.get("osm_id") == osm_id:
+                                return s
+                        # Station not found in response — it's gone or API didn't return it
+                        return {
+                            "osm_id": osm_id,
+                            "status": "unknown",
+                            "detail": "",
+                            "confirmations": 0,
+                            "confirmed": False,
+                            "last_at": "",
+                            "name": "",
+                            "brand": "",
+                            "addr": "",
+                            "lat": lat,
+                            "lon": lon,
+                        }
+                    except json.JSONDecodeError:
+                        return None
                 return None
-    return None
+        except Exception:
+            return None
 
 
-def summarize_point(data: dict | None) -> dict | None:
-    """Extract availability metrics from one API response."""
-    if not data or not data.get("summary"):
-        return None
+def build_html(stations: list[dict], output_path: str) -> None:
+    """Build HTML heatmap with Leaflet + CartoDB tiles."""
+    # Count statuses
+    total = len(stations)
+    yes = sum(1 for s in stations if s.get("status") == "yes")
+    queue = sum(1 for s in stations if s.get("status") == "queue")
+    no = sum(1 for s in stations if s.get("status") in ("no",))
+    unknown = sum(1 for s in stations if s.get("status") == "unknown")
+    availability_score = (yes + queue * 0.5) / total * 100 if total > 0 else 0
 
-    s = data["summary"]
-    total = s.get("yes", 0) + s.get("queue", 0) + s.get("no", 0) + s.get("low", 0)
-    if total == 0:
-        return None
-
-    return {
-        "lat": data["lat"],
-        "lon": data["lon"],
-        "total": total,
-        "yes": s.get("yes", 0),
-        "queue": s.get("queue", 0),
-        "no": s.get("no", 0),
-        "low": s.get("low", 0),
-        "yes_pct": round(s.get("yes", 0) / total * 100, 1) if total > 0 else 0,
-        "availability_score": round(
-            (s.get("yes", 0) + s.get("queue", 0) * 0.5) / total * 100, 1
-        )
-        if total > 0
-        else 0,
-        "updated": data.get("updated", ""),
-    }
-
-
-def build_html(points: list[dict], output_path: str) -> None:
-    """Build an HTML heatmap with Leaflet + CartoDB tiles (free, no key)."""
-    points_json = json.dumps(points)
-
-    avg_score = (
-        sum(p["availability_score"] for p in points) / len(points) if points else 0
+    points_json = json.dumps(
+        [
+            {
+                "lat": s["lat"],
+                "lon": s["lon"],
+                "brand": s.get("brand", "") or s.get("name", ""),
+                "status": s.get("status", "unknown"),
+                "detail": s.get("detail", ""),
+                "confirmations": s.get("confirmations", 0),
+            }
+            for s in stations
+        ]
     )
-    worst_score = min(p["availability_score"] for p in points) if points else 0
 
     html = f"""<!DOCTYPE html>
 <html lang="ru">
@@ -144,10 +168,9 @@ body {{ font-family: -apple-system, system-ui, sans-serif; background: #f5f5f5; 
   position: fixed; top: 12px; right: 12px; z-index: 1000;
   background: rgba(255,255,255,0.95); box-shadow: 0 2px 12px rgba(0,0,0,0.12);
   padding: 14px 18px; border-radius: 10px; border: 1px solid #e0e0e0;
-  font-size: 13px; color: #333; min-width: 200px;
+  font-size: 13px; color: #333; min-width: 220px;
 }}
 #stats h3 {{ color: #111; font-size: 15px; margin-bottom: 6px; }}
-.legend {{ margin-top: 8px; }}
 .legend-item {{ display: flex; align-items: center; gap: 6px; margin: 2px 0; font-size: 12px; }}
 .legend-item span {{ width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; }}
 .footer {{
@@ -156,22 +179,19 @@ body {{ font-family: -apple-system, system-ui, sans-serif; background: #f5f5f5; 
   padding: 6px 16px; border-radius: 6px;
   color: #666; font-size: 11px; text-align: center;
 }}
-.footer a {{ color: #6688aa; }}
+.footer a {{ color: #446688; }}
 </style>
 </head>
 <body>
 
 <div id="stats">
   <h3>&#9981; Топливная карта России</h3>
-  <div>Точек: <b>{len(points)}</b></div>
-  <div>Средняя доступность: <b id="avg">{avg_score:.1f}%</b></div>
-  <div class="legend">
-    <div class="legend-item"><span style="background:#00c853"></span> 80-100% — есть везде</div>
-    <div class="legend-item"><span style="background:#ffd600"></span> 50-80% — в целом есть</div>
-    <div class="legend-item"><span style="background:#ff9100"></span> 20-50% — проблемно</div>
-    <div class="legend-item"><span style="background:#ff1744"></span> 0-20% — критично</div>
-  </div>
-  <div style="margin-top:6px;font-size:11px;color:#666;">Наведите на точку для деталей</div>
+  <div>Всего АЗС: <b>{total}</b></div>
+  <div>&#9989; Есть: <b>{yes}</b> ({yes / total * 100:.0f}%)</div>
+  <div>&#9888; Очередь: <b>{queue}</b> ({queue / total * 100:.0f}%)</div>
+  <div>&#10060; Нет: <b>{no}</b> ({no / total * 100:.0f}%)</div>
+  <div style="margin-top:6px;font-size:11px;color:#888;">Неизвестно: {unknown}</div>
+  <div style="margin-top:6px;font-size:11px;color:#888;">Кликните на маркер для деталей</div>
 </div>
 
 <div id="map"></div>
@@ -179,71 +199,71 @@ body {{ font-family: -apple-system, system-ui, sans-serif; background: #f5f5f5; 
 <div class="footer">
   Данные: <a href="https://gdebenz.ru" target="_blank">gdebenz.ru</a>,
   сканирование: {time.strftime("%Y-%m-%d %H:%M")},
-  подложка: &copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> / CartoDB
+  подложка: &copy; <a href="https://carto.com">CARTO</a> / <a href="https://www.openstreetmap.org/copyright">OSM</a>
 </div>
 
 <script>
-const points = {points_json};
+const stations = {points_json};
+const statusColors = {{
+  'yes': '#00c853',
+  'queue': '#ffd600',
+  'no': '#ff1744',
+  'low': '#ff9100',
+  'unknown': '#999'
+}};
 
-var map = L.map('map', {{
-  center: [62, 100],
-  zoom: 3,
-  zoomControl: true,
-}});
+var map = L.map('map', {{ center: [62, 100], zoom: 3 }});
 
 L.tileLayer('https://{{s}}.basemaps.cartocdn.com/light_all/{{z}}/{{x}}/{{y}}{{r}}.png', {{
-  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> / <a href="https://carto.com/">CARTO</a>',
+  attribution: '&copy; CARTO',
   subdomains: 'abcd',
   maxZoom: 19,
 }}).addTo(map);
 
-var heatData = points.map(function(p) {{
-  return [p.lat, p.lon, p.availability_score / 100.0];
-}});
-
-var heat = L.heatLayer(heatData, {{
-  radius: 30,
-  blur: 20,
-  maxZoom: 10,
-  max: 1.0,
-  gradient: {{
-    0.0: '#ff1744',
-    0.2: '#ff9100',
-    0.5: '#ffd600',
-    0.8: '#00c853',
-    1.0: '#00c853'
-  }}
-}}).addTo(map);
-
-map.on('click', function(e) {{
-  var lat = e.latlng.lat;
-  var lng = e.latlng.lng;
-  var closest = null, minDist = Infinity;
-  points.forEach(function(p) {{
-    var d = Math.hypot(p.lat - lat, p.lon - lng);
-    if (d < minDist) {{ minDist = d; closest = p; }}
+// Heatmap from stations with fuel (yes + queue)
+var heatData = stations
+  .filter(function(s) {{ return s.status === 'yes' || s.status === 'queue'; }})
+  .map(function(s) {{
+    var intensity = s.status === 'yes' ? 0.9 : 0.5;
+    return [s.lat, s.lon, intensity];
   }});
-  if (closest && minDist < 4) {{
-    var sc = closest.availability_score >= 80 ? 'color:#00c853' :
-      closest.availability_score >= 50 ? 'color:#ffd600' :
-      closest.availability_score >= 20 ? 'color:#ff9100' : 'color:#ff1744';
-    L.popup()
-      .setLatLng([closest.lat, closest.lon])
-      .setContent(
-        '<b>Точка ' + closest.lat.toFixed(2) + ', ' + closest.lon.toFixed(2) + '</b><br>' +
-        'Всего АЗС: ' + closest.total + '<br>' +
-        '&#9989; Есть: ' + closest.yes + ' (' + closest.yes_pct + '%)<br>' +
-        '&#9888; Очередь: ' + closest.queue + '<br>' +
-        '&#10060; Нет: ' + closest.no + '<br>' +
-        'Доступность: <span style="' + sc + ';font-weight:bold;font-size:16px">' +
-          closest.availability_score + '%</span>'
-      )
-      .openOn(map);
-  }}
+
+if (heatData.length > 0) {{
+  L.heatLayer(heatData, {{
+    radius: 25,
+    blur: 15,
+    maxZoom: 12,
+    max: 1.0,
+    gradient: {{ 0.0: '#ff1744', 0.5: '#ffd600', 0.8: '#00c853', 1.0: '#00c853' }}
+  }}).addTo(map);
+}}
+
+// Circle markers
+stations.forEach(function(s) {{
+  var color = statusColors[s.status] || '#999';
+  var r = s.detail && s.detail.length > 0 ? 7 : 5;
+  L.circleMarker([s.lat, s.lon], {{
+    radius: r,
+    fillColor: color,
+    color: '#333',
+    weight: 0.5,
+    opacity: 0.8,
+    fillOpacity: 0.7
+  }}).bindPopup(
+    '<b>' + (s.brand || 'АЗС') + '</b><br>' +
+    'Статус: ' + {{
+      'yes': '&#9989; Есть',
+      'queue': '&#9888; Очередь',
+      'no': '&#10060; Нет',
+      'unknown': '&#10067; Неизвестно'
+    }}[s.status] + '<br>' +
+    (s.detail ? 'Топливо: ' + s.detail + '<br>' : '') +
+    'Подтверждений: ' + (s.confirmations || 0)
+  ).addTo(map);
 }});
 
-if (points.length > 0) {{
-  var bounds = points.map(function(p) {{ return [p.lat, p.lon]; }});
+if (stations.length > 0) {{
+  var bounds = stations.map(function(s) {{ return [s.lat, s.lon]; }});
   map.fitBounds(bounds, {{ padding: [50, 50] }});
 }}
 </script>
@@ -251,19 +271,16 @@ if (points.length > 0) {{
 </html>"""
 
     Path(output_path).write_text(html, encoding="utf-8")
-    print(f"Saved HTML to {output_path} ({len(points)} points)")
+    print(f"Saved HTML to {output_path} ({len(stations)} stations)")
 
 
 async def main():
     parser = argparse.ArgumentParser(description="Scan Russia for fuel availability")
     parser.add_argument(
-        "--step", type=float, default=15, help="Grid step in km (default: 15)"
-    )
-    parser.add_argument(
-        "--radius",
-        type=int,
-        default=8,
-        help="API radius per point in km (default: 8)",
+        "--tile-deg",
+        type=float,
+        default=1.0,
+        help="Tile size in degrees (default: 1.0, ~100km)",
     )
     parser.add_argument(
         "--concurrency",
@@ -272,67 +289,124 @@ async def main():
         help="Max concurrent requests (default: 15)",
     )
     parser.add_argument(
-        "--output", default="fuel_heatmap.html", help="Output HTML file"
+        "--skip-status",
+        action="store_true",
+        help="Skip phase 2 (status fetch), only collect stations",
+    )
+    parser.add_argument("--output", default="fuel_map.html", help="Output HTML file")
+    parser.add_argument(
+        "--resume", default="", help="Resume from saved JSON file (phase 2)"
     )
     args = parser.parse_args()
 
-    grid = generate_grid(args.step)
-    print(f"Grid: {len(grid)} points (step={args.step}km, radius={args.radius}km)")
+    if args.resume:
+        # Resume: load stations from JSON, do phase 2 only
+        print(f"Resuming from {args.resume}...")
+        with open(args.resume) as f:
+            all_stations = json.load(f)
+        print(f"Loaded {len(all_stations)} stations from {args.resume}")
+        start_phase = 2
+    else:
+        # Phase 1: collect stations
+        tiles = generate_tiles(args.tile_deg)
+        print(f"Phase 1: scanning {len(tiles)} tiles...")
 
+        sem = asyncio.Semaphore(args.concurrency)
+        all_stations: dict[str, dict] = {}
+
+        async with aiohttp.ClientSession() as session:
+            batch_size = 20
+            for i in range(0, len(tiles), batch_size):
+                batch_tiles = tiles[i : i + batch_size]
+                tasks = [
+                    fetch_stations_tile(session, sem, lat1, lon1, lat2, lon2)
+                    for (lat1, lon1, lat2, lon2) in batch_tiles
+                ]
+                results = await asyncio.gather(*tasks)
+                for tile_stations in results:
+                    for s in tile_stations:
+                        oid = s.get("osm_id")
+                        if oid:
+                            all_stations[oid] = s  # dedup by osm_id
+
+                done = min(i + batch_size, len(tiles))
+                print(
+                    f"  Phase 1: [{done}/{len(tiles)}] tiles, {len(all_stations)} unique stations"
+                )
+
+                if i + batch_size < len(tiles):
+                    await asyncio.sleep(1)
+
+        stations_list = list(all_stations.values())
+        print(f"Phase 1 done: {len(stations_list)} unique stations")
+
+        # Save intermediate
+        json_path = args.output.replace(".html", ".json")
+        Path(json_path).write_text(
+            json.dumps(stations_list, indent=1), encoding="utf-8"
+        )
+        print(f"Stations saved: {json_path}")
+
+        if args.skip_status:
+            # Build simple marker map without status
+            build_html(stations_list, args.output)
+            return
+
+        start_phase = 2
+
+    # Phase 2: fetch status for each station
+    if start_phase == 2:
+        stations_list = list(all_stations.values()) if not args.resume else all_stations
+
+    print(f"Phase 2: fetching status for {len(stations_list)} stations...")
     sem = asyncio.Semaphore(args.concurrency)
-    results = []
-    total = len(grid)
+    enriched = []
     start = time.time()
 
     async with aiohttp.ClientSession() as session:
-        batch_size = 20
-        for i in range(0, total, batch_size):
-            batch = grid[i : i + batch_size]
+        batch_size = 15
+        for i in range(0, len(stations_list), batch_size):
+            batch = stations_list[i : i + batch_size]
             tasks = [
-                fetch_one(session, sem, lat, lon, args.radius) for lat, lon in batch
+                fetch_station_status(
+                    session, sem, s.get("osm_id", ""), s.get("lat", 0), s.get("lon", 0)
+                )
+                for s in batch
             ]
-            batch_results = await asyncio.gather(*tasks)
-            results.extend(batch_results)
+            results = await asyncio.gather(*tasks)
 
-            done = min(i + batch_size, total)
-            ok = sum(1 for r in results if r is not None)
+            for orig, status in zip(batch, results):
+                if status:
+                    enriched.append(status)
+                else:
+                    enriched.append(orig)
+
+            done = min(i + batch_size, len(stations_list))
             elapsed = time.time() - start
-            eta = (elapsed / max(done, 1)) * (total - done) if done > 0 else 0
+            eta = (
+                (elapsed / max(done, 1)) * (len(stations_list) - done)
+                if done > 0
+                else 0
+            )
+            ok = sum(1 for s in enriched if s.get("status") != "unknown")
             print(
-                f"  [{done}/{total}] ok={ok} failed={done - ok} "
-                f"elapsed={elapsed:.0f}s eta={eta:.0f}s"
+                f"  Phase 2: [{done}/{len(stations_list)}] ok={ok} elapsed={elapsed:.0f}s eta={eta:.0f}s"
             )
 
-            # Delay between batches
-            if i + batch_size < total:
-                await asyncio.sleep(1.5)
-
-    # Aggregate
-    points = []
-    for r in results:
-        p = summarize_point(r)
-        if p:
-            points.append(p)
+            if i + batch_size < len(stations_list):
+                await asyncio.sleep(0.5)
 
     elapsed = time.time() - start
+    yes = sum(1 for s in enriched if s.get("status") == "yes")
+    queue = sum(1 for s in enriched if s.get("status") == "queue")
+    no = sum(1 for s in enriched if s.get("status") == "no")
     print(
-        f"\nResults: {len(points)} valid points out of {total} scanned in {elapsed:.0f}s"
+        f"\nDone in {elapsed:.0f}s:"
+        f" {len(enriched)} stations,"
+        f" yes={yes}, queue={queue}, no={no}"
     )
 
-    if points:
-        avg = sum(p["availability_score"] for p in points) / len(points)
-        worst = min(p["availability_score"] for p in points)
-        best = max(p["availability_score"] for p in points)
-        print(f"Average availability: {avg:.1f}%")
-        print(f"Range: {worst:.1f}% - {best:.1f}%")
-
-        # Save raw data as JSON
-        json_path = args.output.replace(".html", ".json")
-        Path(json_path).write_text(json.dumps(points, indent=1), encoding="utf-8")
-        print(f"Raw data saved: {json_path}")
-
-    # Build HTML
-    build_html(points, args.output)
+    build_html(enriched, args.output)
 
 
 if __name__ == "__main__":
